@@ -1,9 +1,11 @@
-# LinkedIn → Notion Job Saver
+# Job Saver → Notion
 
 A lightweight Chrome (Manifest V3) extension that adds a **“Save to Notion”**
-button to LinkedIn job posts. One click saves the job — title, company, URL,
-detected language, and the full description — straight into your Notion jobs
-database.
+button to job posts. One click saves the job — title, company, URL, detected
+language, and the full description — straight into your Notion jobs database.
+
+**Supported sites:** LinkedIn, StepStone. New sites plug in as small
+[adapters](#supported-sites--adding-a-new-one) — no core changes needed.
 
 <!-- Add a screenshot here once you have one:
 ![Save to Notion button on a LinkedIn job](docs/screenshot.png)
@@ -13,10 +15,13 @@ database.
 
 ## Features
 
-- **One-click save** from a button injected right next to LinkedIn’s *Save*.
+- **One-click save** from a button injected right next to the site’s *Save* button.
+- **Multi-platform** via a tiny adapter per site (LinkedIn + StepStone today).
 - Works on **both** LinkedIn job layouts:
   - the split-view (`/jobs/collections/`, `/jobs/search/`), and
   - the standalone job page (`/jobs/view/<id>`).
+- The **Platform** column is set from the source site automatically
+  (`Linkedin`, `Stepstone`, …).
 - **Full description** captured into the Notion page body (auto-expands
   “…see more”, and split into Notion-safe blocks).
 - **Language auto-detection** (English / German / …) via Chrome’s built-in
@@ -37,7 +42,46 @@ rendering, then injects the button. On click it scrapes the job **in-page**
 (the only reliable moment, since LinkedIn loads content dynamically and is
 aggressive about anti-scraping) and sends the data to the background service
 worker, which calls the Notion API. Your Notion token never touches the page,
-and there are no network calls from LinkedIn’s tab.
+and there are no network calls from the job-site tab.
+
+---
+
+## Supported sites & adding a new one
+
+Each site is a small **adapter** object in [`content.js`](content.js); the
+button injection, saving, language detection and Notion write are all shared.
+An adapter looks like this:
+
+```js
+const StepStoneAdapter = {
+  name: "Stepstone",                          // → the Notion "Platform" value
+  hostMatch: /(^|\.)stepstone\.[a-z.]+$/i,    // which hostnames it handles
+  findAnchors: () =>                          // element(s) to place the button by
+    document.querySelectorAll('[data-at="header-save-button"]'),
+  jobId: () => location.pathname,             // stable id for dedup / reset
+  scrape() {                                  // return the job, or null
+    const title = textOf('[data-at="header-job-title"]');
+    if (!title) return null;
+    return {
+      page_url: location.href,
+      job_url: location.href.split("?")[0],
+      job_title: title,
+      company_name: textOf('[data-at="metadata-company-name"]'),
+      job_details: textOf('[data-at="job-ad-content"]'),
+    };
+  },
+};
+```
+
+**To add a site (e.g. Indeed):**
+
+1. Add an adapter object to the `ADAPTERS` array in [`content.js`](content.js).
+2. Add its host to `content_scripts[].matches` in [`manifest.json`](manifest.json).
+3. Add a matching option to your Notion **Platform** select (or let it be
+   auto-created on first save).
+
+`scrape()` may be `async` if the page needs expanding/awaiting (see the
+LinkedIn standalone adapter, which clicks “…see more” first).
 
 ---
 

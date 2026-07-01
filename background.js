@@ -97,7 +97,7 @@ function buildPayload(schema, job, language) {
   setProp(properties, schema, PROP.applicationDate, today());
   setProp(properties, schema, PROP.url, job.job_url);
   setOption(properties, schema, PROP.status, DEFAULTS.status);
-  setOption(properties, schema, PROP.platform, DEFAULTS.platform);
+  setOption(properties, schema, PROP.platform, job.platform || DEFAULTS.platform);
   setOption(properties, schema, PROP.type, DEFAULTS.type);
   if (language) setOption(properties, schema, PROP.language, language);
 

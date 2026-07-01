@@ -1,28 +1,57 @@
 // Notion Job Saver — content script.
-// Injects a "Save to Notion" button next to LinkedIn's Save button and runs the
-// scraper on click (when the job content is guaranteed to be fully rendered),
-// then hands the data to the background worker to write to Notion.
+// Injects a "Save to Notion" button on supported job sites; on click it scrapes
+// the job in-page and hands it to the background worker to write to Notion.
+//
+// Multi-platform via ADAPTERS: to support a new site, add one adapter object
+// below and add its host to manifest.json "content_scripts".matches.
 
 (() => {
   if (window.__notionJobSaverLoaded) return;
   window.__notionJobSaverLoaded = true;
 
   const BTN_CLASS = "notion-save-button";
+  const clean = (s) => (s || "").replace(/\u00a0/g, " ").trim();
+  const textOf = (sel, root = document) => {
+    const el = root.querySelector(sel);
+    return el ? clean(el.innerText) : "";
+  };
 
-  // --- Scrapers (run in-page, on click) ------------------------------------
-  // Standalone job pages (/jobs/view/<id>) have a completely different DOM than
-  // the card / split-view pages, so they get their own scraper. Kept separate
-  // on purpose — do not merge the two.
-  function isStandalonePage() {
-    return /\/jobs\/view\/\d+/.test(location.pathname);
-  }
+  // =========================================================================
+  // Platform adapters
+  //
+  //   name         value written to the Notion "Platform" column
+  //   hostMatch    RegExp tested against location.hostname
+  //   pathAllowed  (optional) () => boolean — only inject on job pages
+  //   findAnchors  () => element(s) to place the button next to (e.g. Save btn)
+  //   jobId        () => stable id for the current job (dedup / reset)
+  //   scrape       async () => job | null
+  //                job = { page_url, job_url, job_title, company_name, job_details }
+  // =========================================================================
 
-  async function scrapeJob() {
-    return isStandalonePage() ? getJobDetailsStandalone() : getJobDetailsCard();
-  }
+  // ---- LinkedIn -----------------------------------------------------------
+  const LinkedInAdapter = {
+    name: "Linkedin",
+    hostMatch: /(^|\.)linkedin\.com$/i,
+    pathAllowed: () => location.pathname.startsWith("/jobs"),
+    jobId: () =>
+      (location.href.match(/currentJobId=(\d+)/) ||
+        location.href.match(/\/jobs\/view\/(\d+)/) ||
+        [])[1] || location.pathname,
+    findAnchors() {
+      let a = document.querySelectorAll(".jobs-save-button");
+      if (!a.length) a = document.querySelectorAll('[aria-label^="Save the job"]');
+      if (!a.length) a = document.querySelectorAll(".jobs-apply-button");
+      return a;
+    },
+    scrape() {
+      return /\/jobs\/view\/\d+/.test(location.pathname)
+        ? linkedInStandalone()
+        : linkedInCard();
+    },
+  };
 
-  // Card / split-view layout (collections, search). Original logic, unchanged.
-  function getJobDetailsCard() {
+  // LinkedIn — card / split-view layout (collections, search).
+  function linkedInCard() {
     const details = {
       page_url: location.href,
       job_url: "",
@@ -38,36 +67,32 @@
       details.job_url = titleLink
         ? titleLink.href.split("?")[0]
         : location.href.split("?")[0];
-
       const companyEl = document.querySelector(
         ".job-details-jobs-unified-top-card__company-name"
       );
-      details.company_name = companyEl ? companyEl.innerText.trim() : "";
-      details.job_title = titleEl ? titleEl.innerText.trim() : "";
-
+      details.company_name = companyEl ? clean(companyEl.innerText) : "";
+      details.job_title = titleEl ? clean(titleEl.innerText) : "";
       const container = document.querySelector(".jobs-description__container");
       const descEl =
         (container && container.querySelector(".mt4")) ||
         document.querySelector(".jobs-description-content__text") ||
         document.querySelector(".jobs-box__html-content") ||
         container;
-      details.job_details = descEl ? descEl.innerText.trim() : "";
-
+      details.job_details = descEl ? clean(descEl.innerText) : "";
       return details.job_title ? details : null;
     } catch (e) {
-      console.error("[Notion Job Saver] getJobDetailsCard error:", e);
+      console.error("[Notion Job Saver] linkedInCard error:", e);
       return null;
     }
   }
 
-  // Standalone layout (/jobs/view/<id>). Verified against multiple postings.
-  async function getJobDetailsStandalone() {
-    const clean = (s) => (s || "").replace(/ /g, " ").trim();
+  // LinkedIn — standalone layout (/jobs/view/<id>).
+  async function linkedInStandalone() {
     try {
       const jobId = (location.href.match(/\/jobs\/view\/(\d+)/) || [])[1] || null;
 
-      // 1) Title + company FIRST, before touching the DOM — a stray click can
-      // spawn the "Did you finish applying?" dialog and collapse line breaks.
+      // Title + company FIRST, before touching the DOM — a stray click can spawn
+      // the "Did you finish applying?" dialog and collapse header line breaks.
       const banner = document.querySelector(
         '[componentkey^="JobDetails_ManageJobBanner_"]'
       );
@@ -95,8 +120,7 @@
       let title = company ? lines.find((l) => l && l !== company) || "" : "";
       if (!title) title = lines[1] || lines[0] || "";
 
-      // 2) Description — expand ONLY <button>s inside the description container.
-      // Never click links / Apply / company (those navigate away).
+      // Description — expand ONLY <button>s inside the description container.
       const descEl =
         (jobId &&
           document.querySelector(
@@ -130,18 +154,45 @@
         job_details,
       };
     } catch (e) {
-      console.error("[Notion Job Saver] getJobDetailsStandalone error:", e);
+      console.error("[Notion Job Saver] linkedInStandalone error:", e);
       return null;
     }
   }
 
-  // --- Button --------------------------------------------------------------
+  // ---- StepStone ----------------------------------------------------------
+  // Stable `data-at` hooks make this one straightforward.
+  const StepStoneAdapter = {
+    name: "Stepstone",
+    hostMatch: /(^|\.)stepstone\.[a-z.]+$/i,
+    findAnchors: () =>
+      document.querySelectorAll('[data-at="header-save-button"]'),
+    jobId: () => location.pathname,
+    scrape() {
+      const title = textOf('[data-at="header-job-title"]');
+      if (!title) return null;
+      return {
+        page_url: location.href,
+        job_url: location.href.split("?")[0],
+        job_title: title,
+        company_name: textOf('[data-at="metadata-company-name"]'),
+        job_details: textOf('[data-at="job-ad-content"]'),
+      };
+    },
+  };
+
+  // ---- Registry -----------------------------------------------------------
+  const ADAPTERS = [LinkedInAdapter, StepStoneAdapter];
+  const activeAdapter = () =>
+    ADAPTERS.find((a) => a.hostMatch.test(location.hostname));
+
+  // =========================================================================
+  // Button
+  // =========================================================================
   function createButton() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `${BTN_CLASS} artdeco-button artdeco-button--2 artdeco-button--secondary`;
-    // Self-contained pill styling so it looks right regardless of the container
-    // (card row or standalone grid).
+    // Self-contained pill styling so it looks right regardless of the container.
     btn.style.cssText =
       "margin-left:8px;padding:6px 16px;min-height:32px;border-radius:16px;" +
       "border:1px solid;background:transparent;font-weight:600;font-size:14px;" +
@@ -174,19 +225,21 @@
   async function onSave(btn) {
     setState(btn, "loading");
     try {
-      const job = await scrapeJob();
+      const adapter = activeAdapter();
+      const job = adapter ? await adapter.scrape() : null;
       if (!job) {
         setState(btn, "error");
         toast("Couldn't read the job — open it fully, then click again.", true);
         return;
       }
+      job.platform = adapter.name; // record which site it came from
       const res = await chrome.runtime.sendMessage({ type: "SAVE_JOB", job });
       if (res && res.ok) {
         savedJobs.add(currentJobId());
-        // Sync every button for this job (sticky + top card) to "saved".
-        document.querySelectorAll(`.${BTN_CLASS}`).forEach((b) =>
-          setState(b, "success")
-        );
+        // Sync every button for this job to "saved".
+        document
+          .querySelectorAll(`.${BTN_CLASS}`)
+          .forEach((b) => setState(b, "success"));
         toast(`Saved: ${job.job_title}`);
       } else {
         setState(btn, "error");
@@ -194,15 +247,16 @@
       }
     } catch (e) {
       setState(btn, "error");
-      // Most common cause: the extension was reloaded while the tab stayed open.
       const m = /context invalidated/i.test(e.message || "")
-        ? "Reload this LinkedIn tab (the extension was updated)."
+        ? "Reload this tab (the extension was updated)."
         : e.message || String(e);
       toast(`Save failed: ${m}`, true);
     }
   }
 
-  // --- Toast ---------------------------------------------------------------
+  // =========================================================================
+  // Toast
+  // =========================================================================
   function toast(message, isError) {
     const el = document.createElement("div");
     el.textContent = message;
@@ -217,33 +271,29 @@
     setTimeout(() => el.remove(), isError ? 6000 : 3000);
   }
 
-  // --- Injection + SPA handling -------------------------------------------
-  // Keep exactly one button next to each Save button (LinkedIn renders both a
-  // sticky-header Save and the main top-card Save), and remove any strays left
-  // behind when LinkedIn re-renders those containers on scroll.
+  // =========================================================================
+  // Injection + SPA handling
+  // =========================================================================
   function ensureButton() {
-    if (!location.pathname.startsWith("/jobs")) return;
-    let anchors = document.querySelectorAll(".jobs-save-button");
-    if (!anchors.length)
-      anchors = document.querySelectorAll('[aria-label^="Save the job"]');
-    if (!anchors.length) anchors = document.querySelectorAll(".jobs-apply-button");
+    const adapter = activeAdapter();
+    if (!adapter) return;
+    if (adapter.pathAllowed && !adapter.pathAllowed()) return;
 
+    const anchors = adapter.findAnchors();
     const keep = new Set();
     anchors.forEach((rawAnchor) => {
-      // The aria-label can sit on an inner span; anchor to the real <button> so
-      // we insert a sibling next to it, not a child inside it.
+      // Resolve to the real <button> so we insert a sibling next to it, not a
+      // child inside it (some sites put the aria/data hook on an inner span).
       const anchor = rawAnchor.closest("button") || rawAnchor;
       const parent = anchor.parentElement;
       if (!parent) return;
 
-      // Standalone job pages lay the action buttons out in a CSS grid with fixed
-      // cells; adding a child lands it in an occupied cell and overlaps. In that
-      // case insert *after* the grid container (normal flow) instead.
+      // Some layouts (e.g. LinkedIn standalone) lay actions out in a CSS grid
+      // with fixed cells; adding a child overlaps. Insert after the grid then.
       const inGrid = getComputedStyle(parent).display === "grid";
       const host = inGrid ? parent.parentElement : parent;
       if (!host) return;
 
-      // Reuse an existing button in this container (preserves its state).
       let btn = host.querySelector(`:scope > .${BTN_CLASS}`);
       if (!btn) {
         btn = createButton();
@@ -253,25 +303,21 @@
         } else {
           anchor.insertAdjacentElement("afterend", btn);
         }
-        // If this job was already saved this session, show it as saved.
         if (savedJobs.has(currentJobId())) setState(btn, "success");
       }
       keep.add(btn);
     });
 
-    // Drop stray *idle* buttons no longer tied to a current Save button (so an
+    // Drop stray *idle* buttons no longer tied to a current anchor (so an
     // in-progress / saved button is never yanked mid-action).
     document.querySelectorAll(`.${BTN_CLASS}`).forEach((b) => {
       if (!keep.has(b) && b.dataset.state === "idle") b.remove();
     });
   }
 
-  // Identify the currently viewed job so we can reset buttons when it changes.
   function currentJobId() {
-    const m =
-      location.href.match(/currentJobId=(\d+)/) ||
-      location.href.match(/\/jobs\/view\/(\d+)/);
-    return m ? m[1] : location.pathname;
+    const a = activeAdapter();
+    return a ? a.jobId() : location.pathname;
   }
 
   let lastJobId = currentJobId();
@@ -280,8 +326,7 @@
   function tick() {
     const id = currentJobId();
     if (id !== lastJobId) {
-      // Switched jobs: drop stale buttons (incl. a leftover "Retry" state) so
-      // fresh idle ones get added for the new job.
+      // Switched jobs: drop stale buttons so fresh idle ones get added.
       lastJobId = id;
       document.querySelectorAll(`.${BTN_CLASS}`).forEach((b) => b.remove());
     }
