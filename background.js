@@ -40,6 +40,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     injectJsPdf(sender.tab && sender.tab.id).then(sendResponse);
     return true;
   }
+  if (msg.type === "DOWNLOAD_PDF") {
+    handleDownloadPdf(msg).then(sendResponse);
+    return true;
+  }
 });
 
 async function handleSave(job) {
@@ -197,6 +201,40 @@ function buildCoverLetterPrompt(systemBase, background, job, preferences, langua
   ].join("\n");
 
   return { system, user };
+}
+
+// Download a cover-letter PDF (data URL from the content script) into an
+// optional subfolder of the user's Downloads folder.
+async function handleDownloadPdf(msg) {
+  try {
+    if (!msg.dataUrl) return { ok: false, error: "No PDF data to download." };
+    const { aiPdfFolder } = await chrome.storage.local.get(["aiPdfFolder"]);
+    const folder = sanitizeSubfolder(aiPdfFolder);
+    const name =
+      (msg.filename || "Cover Letter.pdf").replace(/[<>:"|?*\\/]+/g, " ").trim() ||
+      "Cover Letter.pdf";
+    const filename = folder ? `${folder}/${name}` : name;
+    const id = await chrome.downloads.download({
+      url: msg.dataUrl,
+      filename,
+      conflictAction: "uniquify",
+      saveAs: false,
+    });
+    return { ok: true, id };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
+}
+
+// Chrome only allows download paths relative to the Downloads folder: no
+// absolute paths, no "..". Keep clean segment names only.
+function sanitizeSubfolder(input) {
+  return (input || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((seg) => seg.trim().replace(/[<>:"|?*]+/g, "").replace(/^\.+$/, ""))
+    .filter(Boolean)
+    .join("/");
 }
 
 // Lazily inject jsPDF into the tab's isolated world (only when a PDF is first

@@ -187,8 +187,47 @@
     },
   };
 
+  // ---- Indeed -------------------------------------------------------------
+  // Works on both the search split-view (?vjk=) and standalone /viewjob (?jk=).
+  const IndeedAdapter = {
+    name: "Indeed",
+    hostMatch: /(^|\.)indeed\.com$/i,
+    pathAllowed: () => /viewjob|\/jobs/.test(location.pathname),
+    // Anchor to the bookmark/save button — data-dd-action-name is language-
+    // independent. Each icon is in its own wrapper, so append our buttons to the
+    // whole action row (the ancestor that also holds the Apply button) to keep
+    // them aligned with the rest.
+    findAnchors: () => document.querySelectorAll('[data-dd-action-name="save-job"]'),
+    hostFor: (anchor) => {
+      const apply = document.querySelector("#indeedApplyButton");
+      let el = anchor.parentElement;
+      while (el && apply && !el.contains(apply)) el = el.parentElement;
+      return el || anchor.parentElement;
+    },
+    jobId: () => {
+      const p = new URLSearchParams(location.search);
+      return p.get("vjk") || p.get("jk") || location.pathname;
+    },
+    scrape() {
+      let title = textOf('[data-testid="jobsearch-JobInfoHeader-title"]');
+      title = title.replace(/\s*[-–—]\s*job post\s*$/i, "").trim();
+      if (!title) return null;
+      const p = new URLSearchParams(location.search);
+      const jobId = p.get("vjk") || p.get("jk") || "";
+      return {
+        page_url: location.href,
+        job_url: jobId
+          ? `${location.origin}/viewjob?jk=${jobId}`
+          : location.href.split("?")[0],
+        job_title: title,
+        company_name: textOf('[data-testid="inlineHeader-companyName"]'),
+        job_details: textOf("#jobDescriptionText"),
+      };
+    },
+  };
+
   // ---- Registry -----------------------------------------------------------
-  const ADAPTERS = [LinkedInAdapter, StepStoneAdapter];
+  const ADAPTERS = [LinkedInAdapter, StepStoneAdapter, IndeedAdapter];
   const activeAdapter = () =>
     ADAPTERS.find((a) => a.hostMatch.test(location.hostname));
 
@@ -528,7 +567,15 @@
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, 100) || "Cover Letter";
-      doc.save(`${base}.pdf`);
+      // Hand the PDF to the background so it can save into the configured
+      // Downloads subfolder (content scripts can't use chrome.downloads).
+      const dataUrl = doc.output("datauristring");
+      const r = await chrome.runtime.sendMessage({
+        type: "DOWNLOAD_PDF",
+        dataUrl,
+        filename: `${base}.pdf`,
+      });
+      if (!r || !r.ok) throw new Error((r && r.error) || "Download failed.");
       panelStatus("Saved PDF ✓", false);
     } catch (e) {
       panelStatus(e.message || String(e), true);
@@ -552,16 +599,23 @@
       const parent = anchor.parentElement;
       if (!parent) return;
 
+      // hostFor: adapter picks the container to append into (e.g. Indeed's whole
+      // action row), so the buttons align with the row instead of nesting in a
+      // per-icon wrapper.
+      const customHost = adapter.hostFor ? adapter.hostFor(anchor) : null;
       // Some layouts (e.g. LinkedIn standalone) lay actions out in a CSS grid
       // with fixed cells; adding a child overlaps. Insert after the grid then.
-      const inGrid = getComputedStyle(parent).display === "grid";
-      const host = inGrid ? parent.parentElement : parent;
+      const inGrid = !customHost && getComputedStyle(parent).display === "grid";
+      const host = customHost || (inGrid ? parent.parentElement : parent);
       if (!host) return;
 
       let btn = host.querySelector(`:scope > .${BTN_CLASS}`);
       if (!btn) {
         btn = createButton();
-        if (inGrid) {
+        if (customHost) {
+          btn.style.alignSelf = "center";
+          host.appendChild(btn);
+        } else if (inGrid) {
           parent.insertAdjacentElement("afterend", btn);
           btn.style.alignSelf = "center";
         } else {
@@ -577,7 +631,7 @@
         let pen = host.querySelector(`:scope > .${PEN_CLASS}`);
         if (!pen) {
           pen = createPenButton();
-          if (inGrid) pen.style.alignSelf = "center";
+          if (inGrid || customHost) pen.style.alignSelf = "center";
           btn.insertAdjacentElement("beforebegin", pen);
         }
         keep.add(pen);

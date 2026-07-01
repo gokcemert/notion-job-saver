@@ -16,12 +16,20 @@ chrome.storage.sync.get(["notionToken", "databaseId"], (s) => {
   if (s.databaseId) $("db").value = s.databaseId;
 });
 chrome.storage.local.get(
-  ["aiProvider", "aiApiKey", "aiModel", "aiBackground", "aiSystemPrompt"],
+  [
+    "aiProvider",
+    "aiApiKey",
+    "aiModel",
+    "aiBackground",
+    "aiSystemPrompt",
+    "aiPdfFolder",
+  ],
   (s) => {
     if (s.aiProvider) $("aiProvider").value = s.aiProvider;
     if (s.aiApiKey) $("aiApiKey").value = s.aiApiKey;
     if (s.aiModel) $("aiModel").value = s.aiModel;
     if (s.aiBackground) $("aiBackground").value = s.aiBackground;
+    if (s.aiPdfFolder) $("aiPdfFolder").value = s.aiPdfFolder;
     // Prefill with the default so it's visible and editable.
     $("aiSystemPrompt").value = s.aiSystemPrompt || DEFAULT_SYSTEM_PROMPT;
   }
@@ -39,6 +47,7 @@ function readCover() {
     aiModel: $("aiModel").value.trim(),
     aiBackground: $("aiBackground").value,
     aiSystemPrompt: $("aiSystemPrompt").value.trim() || DEFAULT_SYSTEM_PROMPT,
+    aiPdfFolder: $("aiPdfFolder").value.trim(),
   };
 }
 
