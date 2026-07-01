@@ -16,6 +16,8 @@ language, and the full description — straight into your Notion jobs database.
 ## Features
 
 - **One-click save** from a button injected right next to the site’s *Save* button.
+- **Cover letter generator** (optional): a per-job side panel that drafts a
+  tailored letter from your background + the job post, with copy and Save-as-PDF.
 - **Multi-platform** via a tiny adapter per site (LinkedIn + StepStone today).
 - Works on **both** LinkedIn job layouts:
   - the split-view (`/jobs/collections/`, `/jobs/search/`), and
@@ -186,6 +188,57 @@ This is an unpacked extension (not on the Chrome Web Store):
 
 ---
 
+## Cover letters (optional)
+
+A separate, opt-in feature. If you don’t set it up, everything above still works.
+
+### Setup
+
+In the extension **Settings** → *Cover letter* section:
+
+1. **AI provider** — OpenAI (the provider layer is pluggable; Claude/Anthropic
+   can be added later).
+2. **API key** — from
+   [platform.openai.com/api-keys](https://platform.openai.com/api-keys). Stored
+   locally in your browser and only ever used from the background worker.
+3. **Model** — any chat model your key can access (default `gpt-4o-mini`).
+4. **About you / experience** — a paragraph or two about your background, skills
+   and achievements. This is sent with every request, so more relevant detail =
+   better letters.
+5. **System prompt (advanced)** — the core instructions given to the AI,
+   pre-filled with a sensible default you can edit. The posting's language is
+   always enforced automatically. Use **Reset to default** to restore it.
+
+Once an API key is saved, a **✎ pen** appears next to each *Save to Notion*
+button.
+
+### Usage
+
+1. On a job, click the **✎** → a panel slides in from the right.
+2. Optionally add **“Emphasize in this letter”** notes
+   (e.g. *“this role is e-commerce; highlight my e-commerce experience”*).
+3. Click **Generate**. The letter is written in the posting’s language, using
+   your background + the job details + your notes.
+4. **Refine it as a conversation:** after the first draft, the button becomes
+   **Update** — type an instruction in the same box (e.g. *“make it shorter”*,
+   *“add my Python experience”*, *“warmer tone”*) and click **Update** to revise
+   the existing letter. **↻** starts a fresh letter from scratch.
+5. **Copy** it, or **Save as PDF** (named `<Company> Cover Letter.pdf`).
+
+Generated letters **persist for the browser session**: reopen the panel (or come
+back to the job) and your letter — and its refine history — are still there,
+until you reload the tab/extension.
+
+What gets sent to the AI provider: your *About you* text, the job details, and
+your per-letter notes — nothing else.
+
+> **PDF & non-Latin characters:** the PDF uses jsPDF’s built-in fonts, which
+> cover Latin-1 (English, German, etc.). Characters outside that range (e.g.
+> Turkish ş/ğ/ı) may not render correctly in the PDF — Copy always preserves the
+> full text. A Unicode font can be embedded later if needed.
+
+---
+
 ## Configuration reference
 
 Everything lives at the top of [`background.js`](background.js):
@@ -224,8 +277,10 @@ const DEFAULTS = {
 - **LinkedIn markup can change.** The scraper targets current selectors and
   stable `componentkey` attributes, but a future LinkedIn redesign may require
   selector updates in [`content.js`](content.js).
-- Your credentials are stored in `chrome.storage.sync` (your browser profile
-  only) and are never sent anywhere except `api.notion.com`.
+- Credentials are stored in your browser profile only (Notion settings in
+  `chrome.storage.sync`; cover-letter settings incl. the API key in
+  `chrome.storage.local`). They’re only ever sent to `api.notion.com` and, if
+  you use cover letters, your chosen AI provider (`api.openai.com`).
 
 ---
 
@@ -233,9 +288,10 @@ const DEFAULTS = {
 
 ```
 manifest.json    MV3 config (content script + background worker)
-content.js       Injects the button; scrapes the job in-page on click
-background.js    Language detection + all Notion API calls
-options.html/js  Settings page (token + database ID, with a connection test)
+content.js       Site adapters, button injection, scraping, cover-letter panel
+background.js    Notion API calls, language detection, AI provider layer
+options.html/js  Settings (Notion + cover-letter config)
+vendor/          jsPDF (lazily injected only when saving a PDF)
 icons/           Extension icons
 ```
 

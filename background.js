@@ -24,12 +24,21 @@ const DEFAULTS = {
 };
 
 // ---------------------------------------------------------------------------
-// Messaging: content script asks us to save a job.
+// Messaging
 // ---------------------------------------------------------------------------
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg && msg.type === "SAVE_JOB") {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg) return;
+  if (msg.type === "SAVE_JOB") {
     handleSave(msg.job).then(sendResponse);
     return true; // keep the channel open for the async response
+  }
+  if (msg.type === "GENERATE_COVER_LETTER") {
+    handleGenerateCoverLetter(msg).then(sendResponse);
+    return true;
+  }
+  if (msg.type === "INJECT_JSPDF") {
+    injectJsPdf(sender.tab && sender.tab.id).then(sendResponse);
+    return true;
   }
 });
 
@@ -64,6 +73,146 @@ chrome.action.onClicked.addListener(() => chrome.runtime.openOptionsPage());
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === "install") chrome.runtime.openOptionsPage();
 });
+
+// ---------------------------------------------------------------------------
+// Cover letter — pluggable AI providers
+//
+// To add a provider (e.g. Anthropic): add an entry here, add its host to
+// manifest host_permissions, and add it to the settings dropdown.
+// ---------------------------------------------------------------------------
+// Default cover-letter instructions. Editable in settings (aiSystemPrompt).
+// Keep in sync with the default shown in options.js.
+const DEFAULT_SYSTEM_PROMPT =
+  "You are an expert career writer. Write a concise, compelling, one-page " +
+  "cover letter tailored to the specific job. Use ONLY facts from the " +
+  "candidate's background — never invent experience, employers, or metrics. " +
+  "Write it ready to send: no placeholders like '[Your Name]' unless the " +
+  "background lacks a name.";
+
+const AI_PROVIDERS = {
+  openai: {
+    label: "OpenAI",
+    endpoint: "https://api.openai.com/v1/chat/completions",
+    defaultModel: "gpt-4o-mini",
+    headers: (key) => ({
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    }),
+    body: (model, messages) => ({ model, messages, temperature: 0.7 }),
+    parse: (json) => json.choices?.[0]?.message?.content?.trim() || "",
+    errorMessage: (json) => json.error?.message,
+  },
+};
+
+async function handleGenerateCoverLetter(msg) {
+  try {
+    const cfg = await chrome.storage.local.get([
+      "aiProvider",
+      "aiApiKey",
+      "aiModel",
+      "aiBackground",
+      "aiSystemPrompt",
+    ]);
+    const provider = AI_PROVIDERS[cfg.aiProvider || "openai"];
+    if (!provider) return { ok: false, error: "Unknown AI provider." };
+    if (!cfg.aiApiKey) {
+      return { ok: false, error: "Add your API key in the extension settings." };
+    }
+    const model = ((msg.model || cfg.aiModel || provider.defaultModel) || "").trim();
+
+    // Two modes:
+    //  - refine:  msg.messages (prior conversation) + msg.instruction
+    //  - initial: msg.job + msg.preferences
+    let messages;
+    if (Array.isArray(msg.messages) && msg.messages.length) {
+      const instruction = (msg.instruction || "").trim() || "Please improve the letter.";
+      messages = [
+        ...msg.messages,
+        {
+          role: "user",
+          content:
+            `Revise the cover letter based on this instruction:\n${instruction}\n\n` +
+            "Return the complete updated letter only.",
+        },
+      ];
+    } else {
+      const job = msg.job || {};
+      if (!job.job_title) return { ok: false, error: "Could not read the job details." };
+      const language =
+        msg.language || (await detectLanguageName(job.job_details || job.job_title));
+      const { system, user } = buildCoverLetterPrompt(
+        cfg.aiSystemPrompt,
+        cfg.aiBackground || "",
+        job,
+        msg.preferences || "",
+        language
+      );
+      messages = [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ];
+    }
+
+    const res = await fetch(provider.endpoint, {
+      method: "POST",
+      headers: provider.headers(cfg.aiApiKey),
+      body: JSON.stringify(provider.body(model, messages)),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: `Generation failed (${res.status}): ${
+          provider.errorMessage(json) || "check your API key and model"
+        }`,
+      };
+    }
+    const text = provider.parse(json);
+    if (!text) return { ok: false, error: "The model returned an empty response." };
+    // Return the full conversation so the panel can continue refining.
+    return { ok: true, text, messages: [...messages, { role: "assistant", content: text }] };
+  } catch (err) {
+    console.error("[Notion Job Saver] cover letter:", err);
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
+}
+
+function buildCoverLetterPrompt(systemBase, background, job, preferences, language) {
+  const base = (systemBase && systemBase.trim()) || DEFAULT_SYSTEM_PROMPT;
+  // The posting's language is always enforced, regardless of the custom prompt.
+  const system = base + (language ? `\n\nWrite the letter in ${language}.` : "");
+
+  const user = [
+    "=== CANDIDATE BACKGROUND ===",
+    background || "(none provided)",
+    "",
+    "=== JOB ===",
+    `Title: ${job.job_title || ""}`,
+    `Company: ${job.company_name || ""}`,
+    "Description:",
+    (job.job_details || "").slice(0, 8000),
+    "",
+    "=== EMPHASIZE IN THIS LETTER ===",
+    preferences || "(no specific instructions)",
+  ].join("\n");
+
+  return { system, user };
+}
+
+// Lazily inject jsPDF into the tab's isolated world (only when a PDF is first
+// requested) so we don't load ~350KB on every job page.
+async function injectJsPdf(tabId) {
+  if (!tabId) return { ok: false, error: "No tab to inject into." };
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["vendor/jspdf.umd.min.js"],
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Notion

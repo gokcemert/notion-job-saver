@@ -1,11 +1,46 @@
 const NOTION_VERSION = "2022-06-28";
 const $ = (id) => document.getElementById(id);
 
-// Restore saved values.
+// Keep this in sync with DEFAULT_SYSTEM_PROMPT in background.js.
+const DEFAULT_SYSTEM_PROMPT =
+  "You are an expert career writer. Write a concise, compelling, one-page " +
+  "cover letter tailored to the specific job. Use ONLY facts from the " +
+  "candidate's background — never invent experience, employers, or metrics. " +
+  "Write it ready to send: no placeholders like '[Your Name]' unless the " +
+  "background lacks a name.";
+
+// Restore saved values. Notion settings live in sync; cover-letter settings in
+// local (the "About you" text can exceed sync's per-item size limit).
 chrome.storage.sync.get(["notionToken", "databaseId"], (s) => {
   if (s.notionToken) $("token").value = s.notionToken;
   if (s.databaseId) $("db").value = s.databaseId;
 });
+chrome.storage.local.get(
+  ["aiProvider", "aiApiKey", "aiModel", "aiBackground", "aiSystemPrompt"],
+  (s) => {
+    if (s.aiProvider) $("aiProvider").value = s.aiProvider;
+    if (s.aiApiKey) $("aiApiKey").value = s.aiApiKey;
+    if (s.aiModel) $("aiModel").value = s.aiModel;
+    if (s.aiBackground) $("aiBackground").value = s.aiBackground;
+    // Prefill with the default so it's visible and editable.
+    $("aiSystemPrompt").value = s.aiSystemPrompt || DEFAULT_SYSTEM_PROMPT;
+  }
+);
+
+$("resetPrompt").addEventListener("click", (e) => {
+  e.preventDefault();
+  $("aiSystemPrompt").value = DEFAULT_SYSTEM_PROMPT;
+});
+
+function readCover() {
+  return {
+    aiProvider: $("aiProvider").value,
+    aiApiKey: $("aiApiKey").value.trim(),
+    aiModel: $("aiModel").value.trim(),
+    aiBackground: $("aiBackground").value,
+    aiSystemPrompt: $("aiSystemPrompt").value.trim() || DEFAULT_SYSTEM_PROMPT,
+  };
+}
 
 // Extract a 32-char hex database ID from a pasted URL or raw ID.
 function extractDatabaseId(input) {
@@ -27,14 +62,22 @@ function readForm() {
 
 $("save").addEventListener("click", () => {
   const { token, databaseId } = readForm();
-  if (!token || !databaseId) {
-    setStatus("Both fields are required.", "err");
+
+  // Cover-letter settings are always saved (all fields optional).
+  chrome.storage.local.set(readCover());
+
+  // Notion needs both fields together, but is optional overall.
+  if (token && databaseId) {
+    chrome.storage.sync.set({ notionToken: token, databaseId });
+    $("db").value = databaseId;
+  } else if (token || databaseId) {
+    setStatus(
+      "Saved cover-letter settings. Notion needs BOTH a token and a database ID.",
+      "err"
+    );
     return;
   }
-  chrome.storage.sync.set({ notionToken: token, databaseId }, () => {
-    $("db").value = databaseId;
-    setStatus("Saved. ✓", "ok");
-  });
+  setStatus("Saved. ✓", "ok");
 });
 
 $("test").addEventListener("click", async () => {
