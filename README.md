@@ -4,7 +4,7 @@ A lightweight Chrome (Manifest V3) extension that adds a **“Save to Notion”*
 button to job posts. One click saves the job — title, company, URL, detected
 language, and the full description — straight into your Notion jobs database.
 
-**Supported sites:** LinkedIn, StepStone. New sites plug in as small
+**Supported sites:** LinkedIn, StepStone, Indeed. New sites plug in as small
 [adapters](#supported-sites--adding-a-new-one) — no core changes needed.
 
 <!-- Add a screenshot here once you have one:
@@ -18,7 +18,7 @@ language, and the full description — straight into your Notion jobs database.
 - **One-click save** from a button injected right next to the site’s *Save* button.
 - **Cover letter generator** (optional): a per-job side panel that drafts a
   tailored letter from your background + the job post, with copy and Save-as-PDF.
-- **Multi-platform** via a tiny adapter per site (LinkedIn + StepStone today).
+- **Multi-platform** via a tiny adapter per site (LinkedIn, StepStone, Indeed today).
 - Works on **both** LinkedIn job layouts:
   - the split-view (`/jobs/collections/`, `/jobs/search/`), and
   - the standalone job page (`/jobs/view/<id>`).
@@ -157,7 +157,7 @@ This is an unpacked extension (not on the Chrome Web Store):
 
 1. Download / clone this repo:
    ```bash
-   git clone https://github.com/gokcemert/linkedin-notion-job-saver.git
+   git clone https://github.com/gokcemert/notion-job-saver.git
    ```
 2. Open **`chrome://extensions`** in Chrome.
 3. Toggle **Developer mode** (top-right) **on**.
@@ -208,6 +208,10 @@ In the extension **Settings** → *Cover letter* section:
 5. **System prompt (advanced)** — the core instructions given to the AI,
    pre-filled with a sensible default you can edit. The posting's language is
    always enforced automatically. Use **Reset to default** to restore it.
+6. **Cover-letter PDF folder** — an optional subfolder of your **Downloads**
+   folder to save PDFs into (e.g. `Cover Letters`), created automatically. Leave
+   empty to save directly in Downloads. Chrome extensions can't save outside the
+   Downloads folder without a dialog, so this is relative to it.
 
 Once an API key is saved, a **✎ pen** appears next to each *Save to Notion*
 button.

@@ -107,6 +107,15 @@
       enforced automatically. <a href="#" id="resetPrompt">Reset to default</a>.
     </small>
 
+    <label for="aiPdfFolder">Cover-letter PDF folder</label>
+    <input id="aiPdfFolder" type="text" placeholder="Downloads (leave empty)" autocomplete="off" />
+    <small>
+      A subfolder of your <b>Downloads</b> folder (e.g. <code>Cover Letters</code>
+      or <code>Jobs/Cover Letters</code>), created automatically. Leave empty to
+      save directly in Downloads. Chrome can't save outside the Downloads folder
+      without a save dialog, so paths are relative to it.
+    </small>
+
     <div class="row">
       <button id="save">Save all settings</button>
     </div>
