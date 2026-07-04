@@ -7,6 +7,9 @@
   "host_permissions": [
     "https://api.notion.com/*",
     "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://openrouter.ai/*",
     "https://www.linkedin.com/*",
     "https://*.stepstone.de/*",
     "https://*.stepstone.com/*",
