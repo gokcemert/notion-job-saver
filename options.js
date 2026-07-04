@@ -23,6 +23,8 @@ chrome.storage.local.get(
     "aiBackground",
     "aiSystemPrompt",
     "aiPdfFolder",
+    "answerMenuEnabled",
+    "answerIconEnabled",
   ],
   (s) => {
     if (s.aiProvider) $("aiProvider").value = s.aiProvider;
@@ -32,6 +34,9 @@ chrome.storage.local.get(
     if (s.aiPdfFolder) $("aiPdfFolder").value = s.aiPdfFolder;
     // Prefill with the default so it's visible and editable.
     $("aiSystemPrompt").value = s.aiSystemPrompt || DEFAULT_SYSTEM_PROMPT;
+    // Answer features default ON.
+    $("answerMenu").checked = s.answerMenuEnabled !== false;
+    $("answerIcon").checked = s.answerIconEnabled !== false;
   }
 );
 
@@ -48,6 +53,8 @@ function readCover() {
     aiBackground: $("aiBackground").value,
     aiSystemPrompt: $("aiSystemPrompt").value.trim() || DEFAULT_SYSTEM_PROMPT,
     aiPdfFolder: $("aiPdfFolder").value.trim(),
+    answerMenuEnabled: $("answerMenu").checked,
+    answerIconEnabled: $("answerIcon").checked,
   };
 }
 
@@ -62,6 +69,13 @@ function setStatus(msg, cls) {
   el.textContent = msg;
   el.className = cls || "";
 }
+
+// Clear any stale "Saved ✓" the moment the user edits something, so seeing it
+// reappear after Save is unambiguous confirmation.
+document.querySelectorAll("input, select, textarea").forEach((el) => {
+  el.addEventListener("input", () => setStatus(""));
+  el.addEventListener("change", () => setStatus(""));
+});
 
 function readForm() {
   const token = $("token").value.trim();

@@ -27,6 +27,8 @@
         font-family: inherit;
       }
       textarea { resize: vertical; line-height: 1.5; }
+      input[type="checkbox"] { width: auto; margin: 0 8px 0 0; vertical-align: middle; }
+      label.toggle { display: flex; align-items: center; font-weight: 400; margin: 10px 0 0; cursor: pointer; }
       hr.sep { margin: 30px 0 6px; border: none; border-top: 1px solid #8883; }
       h2 { font-size: 16px; margin: 22px 0 2px; }
       h2 span { opacity: 0.55; font-weight: 400; font-size: 13px; }
@@ -115,6 +117,11 @@
       save directly in Downloads. Chrome can't save outside the Downloads folder
       without a save dialog, so paths are relative to it.
     </small>
+
+    <label>Application answers</label>
+    <label class="toggle"><input type="checkbox" id="answerMenu" /> Right-click “Answer with AI” on selected text</label>
+    <label class="toggle"><input type="checkbox" id="answerIcon" /> Floating “Answer with AI” button when I select text</label>
+    <small>Both appear only when an API key is set. The floating button works on any website.</small>
 
     <div class="row">
       <button id="save">Save all settings</button>

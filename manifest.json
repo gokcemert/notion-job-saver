@@ -3,7 +3,7 @@
   "name": "Notion Job Saver (LinkedIn)",
   "version": "1.2.0",
   "description": "Save jobs (LinkedIn, StepStone) to Notion and generate tailored cover letters.",
-  "permissions": ["storage", "scripting", "downloads"],
+  "permissions": ["storage", "scripting", "downloads", "contextMenus", "activeTab"],
   "host_permissions": [
     "https://api.notion.com/*",
     "https://api.openai.com/*",
@@ -22,6 +22,11 @@
         "https://*.indeed.com/*"
       ],
       "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["answer.js"],
       "run_at": "document_idle"
     }
   ],

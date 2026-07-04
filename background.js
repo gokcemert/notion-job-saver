@@ -44,6 +44,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleDownloadPdf(msg).then(sendResponse);
     return true;
   }
+  if (msg.type === "ANSWER_QUESTION") {
+    handleAnswerQuestion(msg).then(sendResponse);
+    return true;
+  }
 });
 
 async function handleSave(job) {
@@ -64,6 +68,7 @@ async function handleSave(job) {
     const schema = await fetchSchema(notionToken, databaseId);
     const { properties, children } = buildPayload(schema, job, language);
     await createPage(notionToken, databaseId, properties, children);
+    addRecentJob(job); // remember it for the "Answer with AI" job-context dropdown
     return { ok: true };
   } catch (err) {
     console.error("[Notion Job Saver]", err);
@@ -76,7 +81,75 @@ chrome.action.onClicked.addListener(() => chrome.runtime.openOptionsPage());
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === "install") chrome.runtime.openOptionsPage();
+  refreshContextMenu();
 });
+chrome.runtime.onStartup.addListener(refreshContextMenu);
+refreshContextMenu();
+
+// Show the "Answer with AI" context menu only when an AI key is configured.
+async function refreshContextMenu() {
+  try {
+    const { aiApiKey, answerMenuEnabled } = await chrome.storage.local.get([
+      "aiApiKey",
+      "answerMenuEnabled",
+    ]);
+    await chrome.contextMenus.removeAll();
+    if (aiApiKey && answerMenuEnabled !== false) {
+      chrome.contextMenus.create({
+        id: "answer-with-ai",
+        title: "Answer with AI",
+        contexts: ["selection"],
+      });
+    }
+  } catch (err) {
+    console.error("[Notion Job Saver] context menu:", err);
+  }
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && (changes.aiApiKey || changes.answerMenuEnabled)) {
+    refreshContextMenu();
+  }
+});
+
+// Right-click a selected question -> inject the answer panel (activeTab granted
+// by the menu click, so no host permissions needed) and open it.
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== "answer-with-ai" || !tab || !tab.id) return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["answer.js"],
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (q) => window.__njsAnswerOpen && window.__njsAnswerOpen(q),
+      args: [info.selectionText || ""],
+    });
+  } catch (err) {
+    console.error("[Notion Job Saver] answer inject:", err);
+  }
+});
+
+// Keep the last few saved jobs for the answer feature's job-context dropdown.
+async function addRecentJob(job) {
+  try {
+    if (!job || !job.job_title) return;
+    const { recentJobs = [] } = await chrome.storage.local.get(["recentJobs"]);
+    const entry = {
+      title: job.job_title,
+      company: job.company_name || "",
+      details: (job.job_details || "").slice(0, 6000),
+      url: job.job_url || "",
+      platform: job.platform || "",
+      ts: Date.now(),
+    };
+    const next = [entry, ...recentJobs.filter((j) => j.url !== entry.url)].slice(0, 8);
+    await chrome.storage.local.set({ recentJobs: next });
+  } catch (err) {
+    console.error("[Notion Job Saver] recentJobs:", err);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Cover letter — pluggable AI providers
@@ -201,6 +274,98 @@ function buildCoverLetterPrompt(systemBase, background, job, preferences, langua
   ].join("\n");
 
   return { system, user };
+}
+
+// ---------------------------------------------------------------------------
+// Answer application questions (context-menu feature)
+// ---------------------------------------------------------------------------
+const ANSWER_SYSTEM_PROMPT =
+  "You are helping a job candidate answer a question on an application form. " +
+  "Write a clear, specific, first-person answer using ONLY facts from the " +
+  "candidate's background — never invent experience, employers, or metrics. " +
+  "Be concise and ready to paste. Match the language of the question.";
+
+async function handleAnswerQuestion(msg) {
+  try {
+    let messages;
+    if (Array.isArray(msg.messages) && msg.messages.length) {
+      const instruction = (msg.instruction || "").trim() || "Please improve the answer.";
+      messages = [
+        ...msg.messages,
+        {
+          role: "user",
+          content:
+            `Revise your previous answer based on this instruction:\n${instruction}\n\n` +
+            "Return only the updated answer.",
+        },
+      ];
+    } else {
+      const question = (msg.question || "").trim();
+      if (!question) return { ok: false, error: "No question text was selected." };
+      const { aiBackground } = await chrome.storage.local.get(["aiBackground"]);
+      const language = await detectLanguageName(question);
+      messages = [
+        {
+          role: "system",
+          content:
+            ANSWER_SYSTEM_PROMPT + (language ? `\n\nWrite the answer in ${language}.` : ""),
+        },
+        {
+          role: "user",
+          content: buildAnswerUser(aiBackground || "", msg.job, question, msg.preferences || ""),
+        },
+      ];
+    }
+    return await chatComplete(messages, msg.model);
+  } catch (err) {
+    console.error("[Notion Job Saver] answer:", err);
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
+}
+
+function buildAnswerUser(background, job, question, preferences) {
+  const parts = ["=== CANDIDATE BACKGROUND ===", background || "(none provided)", ""];
+  if (job && (job.title || job.details)) {
+    parts.push(
+      "=== JOB (for context) ===",
+      `Title: ${job.title || ""}`,
+      `Company: ${job.company || ""}`,
+      "Description:",
+      (job.details || "").slice(0, 4000),
+      ""
+    );
+  }
+  parts.push("=== APPLICATION QUESTION ===", question, "");
+  if (preferences) parts.push("=== EXTRA INSTRUCTIONS ===", preferences);
+  return parts.join("\n");
+}
+
+// Shared chat call: resolves the provider/key/model, sends the messages, and
+// returns the reply plus the full conversation (for refining).
+async function chatComplete(messages, modelOverride) {
+  const cfg = await chrome.storage.local.get(["aiProvider", "aiApiKey", "aiModel"]);
+  const provider = AI_PROVIDERS[cfg.aiProvider || "openai"];
+  if (!provider) return { ok: false, error: "Unknown AI provider." };
+  if (!cfg.aiApiKey) return { ok: false, error: "Add your API key in the extension settings." };
+  const model = ((modelOverride || cfg.aiModel || provider.defaultModel) || "").trim();
+
+  const res = await fetch(provider.endpoint, {
+    method: "POST",
+    headers: provider.headers(cfg.aiApiKey),
+    body: JSON.stringify(provider.body(model, messages)),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: `Generation failed (${res.status}): ${
+        provider.errorMessage(json) || "check your API key and model"
+      }`,
+    };
+  }
+  const text = provider.parse(json);
+  if (!text) return { ok: false, error: "The model returned an empty response." };
+  return { ok: true, text, messages: [...messages, { role: "assistant", content: text }] };
 }
 
 // Download a cover-letter PDF (data URL from the content script) into an

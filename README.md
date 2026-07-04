@@ -18,6 +18,9 @@ language, and the full description — straight into your Notion jobs database.
 - **One-click save** from a button injected right next to the site’s *Save* button.
 - **Cover letter generator** (optional): a per-job side panel that drafts a
   tailored letter from your background + the job post, with copy and Save-as-PDF.
+- **Answer with AI** (optional): on any application form, select a question,
+  right-click → *Answer with AI* → get a drafted answer (using your background
+  and, optionally, a recently saved job), with copy and refine.
 - **Multi-platform** via a tiny adapter per site (LinkedIn, StepStone, Indeed today).
 - Works on **both** LinkedIn job layouts:
   - the split-view (`/jobs/collections/`, `/jobs/search/`), and
@@ -243,6 +246,33 @@ your per-letter notes — nothing else.
 
 ---
 
+## Answer application questions (optional)
+
+When you click *Apply* and a company portal (Ashby, Greenhouse, Lever, Workday,
+…) asks free-text questions, this drafts answers without leaving the page. It
+uses the same AI setup as cover letters — no extra config beyond an API key.
+
+1. **Select the question text** on the form.
+2. Trigger it either way:
+   - **Right-click → “Answer with AI,”** or
+   - click the **✦ Answer with AI** button that appears above your selection.
+3. Pick a **job for context** if relevant — the dropdown lists your recently
+   saved jobs (cached locally when you hit *Save to Notion*), so answers can
+   reference the specific role. Or choose *No specific job*.
+4. Optionally add an **Adjust** note, then **Generate**.
+5. **Copy** the answer, or refine it (**Update** / **↻**) just like cover letters.
+
+Both triggers appear **only when an API key is set**, and each has its own
+on/off switch in **Settings → Application answers**. What’s sent to the AI: your
+*About you* background, the selected job’s details (if chosen), and the question.
+
+> **Access note:** the floating button needs to watch for text selection, so the
+> extension runs a small content script on all sites. It stays inert unless the
+> button is enabled and an API key is set — and you can turn it off entirely with
+> the toggle. (The right-click menu alone doesn’t need this.)
+
+---
+
 ## Configuration reference
 
 Everything lives at the top of [`background.js`](background.js):
@@ -293,7 +323,8 @@ const DEFAULTS = {
 ```
 manifest.json    MV3 config (content script + background worker)
 content.js       Site adapters, button injection, scraping, cover-letter panel
-background.js    Notion API calls, language detection, AI provider layer
+answer.js        "Answer with AI" panel, injected on demand via the context menu
+background.js    Notion + AI calls, provider layer, context menu, downloads
 options.html/js  Settings (Notion + cover-letter config)
 vendor/          jsPDF (lazily injected only when saving a PDF)
 icons/           Extension icons
