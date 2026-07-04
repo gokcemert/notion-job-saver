@@ -15,6 +15,25 @@ chrome.storage.sync.get(["notionToken", "databaseId"], (s) => {
   if (s.notionToken) $("token").value = s.notionToken;
   if (s.databaseId) $("db").value = s.databaseId;
 });
+// Per-provider hints (key page, default model). Keep model defaults in sync
+// with AI_PROVIDERS in background.js.
+const PROVIDER_INFO = {
+  openai: { model: "gpt-4o-mini", key: "platform.openai.com/api-keys", keyUrl: "https://platform.openai.com/api-keys" },
+  anthropic: { model: "claude-opus-4-8", key: "console.anthropic.com/settings/keys", keyUrl: "https://console.anthropic.com/settings/keys" },
+  google: { model: "gemini-2.5-flash", key: "aistudio.google.com/app/apikey", keyUrl: "https://aistudio.google.com/app/apikey" },
+  openrouter: { model: "openai/gpt-4o-mini", key: "openrouter.ai/keys", keyUrl: "https://openrouter.ai/keys" },
+};
+
+function updateProviderHints() {
+  const info = PROVIDER_INFO[$("aiProvider").value] || PROVIDER_INFO.openai;
+  $("aiModel").placeholder = info.model;
+  $("modelDefault").textContent = info.model;
+  $("keyLink").textContent = info.key;
+  $("keyLink").href = info.keyUrl;
+}
+
+$("aiProvider").addEventListener("change", updateProviderHints);
+
 chrome.storage.local.get(
   [
     "aiProvider",
@@ -37,6 +56,7 @@ chrome.storage.local.get(
     // Answer features default ON.
     $("answerMenu").checked = s.answerMenuEnabled !== false;
     $("answerIcon").checked = s.answerIconEnabled !== false;
+    updateProviderHints();
   }
 );
 

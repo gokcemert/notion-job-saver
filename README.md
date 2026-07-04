@@ -199,12 +199,19 @@ A separate, opt-in feature. If you don’t set it up, everything above still wor
 
 In the extension **Settings** → *Cover letter* section:
 
-1. **AI provider** — OpenAI (the provider layer is pluggable; Claude/Anthropic
-   can be added later).
-2. **API key** — from
-   [platform.openai.com/api-keys](https://platform.openai.com/api-keys). Stored
-   locally in your browser and only ever used from the background worker.
-3. **Model** — any chat model your key can access (default `gpt-4o-mini`).
+1. **AI provider** — one of **OpenAI**, **Anthropic (Claude)**, **Google
+   (Gemini)**, or **OpenRouter**. The API key and model apply to the selected
+   provider (switching providers means entering that provider's key).
+2. **API key** — from the selected provider's console (the settings page links
+   to the right page). Stored locally and only ever used from the background
+   worker. Key pages: [OpenAI](https://platform.openai.com/api-keys),
+   [Anthropic](https://console.anthropic.com/settings/keys),
+   [Google AI Studio](https://aistudio.google.com/app/apikey),
+   [OpenRouter](https://openrouter.ai/keys).
+3. **Model** — any chat model your key can access. Defaults per provider:
+   `gpt-4o-mini` (OpenAI), `claude-opus-4-8` (Anthropic — capable but pricier;
+   change it if you prefer a cheaper model), `gemini-2.5-flash` (Google),
+   `openai/gpt-4o-mini` (OpenRouter).
 4. **About you / experience** — a paragraph or two about your background, skills
    and achievements. This is sent with every request, so more relevant detail =
    better letters.
@@ -314,7 +321,8 @@ const DEFAULTS = {
 - Credentials are stored in your browser profile only (Notion settings in
   `chrome.storage.sync`; cover-letter settings incl. the API key in
   `chrome.storage.local`). They’re only ever sent to `api.notion.com` and, if
-  you use cover letters, your chosen AI provider (`api.openai.com`).
+  you use cover letters, your chosen AI provider (OpenAI, Anthropic, Google, or
+  OpenRouter).
 
 ---
 

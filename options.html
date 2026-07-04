@@ -84,18 +84,22 @@
     <label for="aiProvider">AI provider</label>
     <select id="aiProvider">
       <option value="openai">OpenAI</option>
+      <option value="anthropic">Anthropic (Claude)</option>
+      <option value="google">Google (Gemini)</option>
+      <option value="openrouter">OpenRouter</option>
     </select>
+    <small>The API key and model below are for the selected provider.</small>
 
     <label for="aiApiKey">API key</label>
     <input id="aiApiKey" type="password" placeholder="sk-…" autocomplete="off" />
     <small>
-      Stored locally in your browser only. Create one at
-      <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>.
+      Stored locally in your browser only. Get one from
+      <a id="keyLink" href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>.
     </small>
 
     <label for="aiModel">Model</label>
     <input id="aiModel" type="text" placeholder="gpt-4o-mini" autocomplete="off" />
-    <small>Any chat model your key can access. Default: <code>gpt-4o-mini</code>.</small>
+    <small>Any chat model your key can access. Default: <code id="modelDefault">gpt-4o-mini</code>.</small>
 
     <label for="aiBackground">About you / experience</label>
     <textarea id="aiBackground" rows="8"

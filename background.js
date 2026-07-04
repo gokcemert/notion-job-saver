@@ -166,19 +166,70 @@ const DEFAULT_SYSTEM_PROMPT =
   "Write it ready to send: no placeholders like '[Your Name]' unless the " +
   "background lacks a name.";
 
+// OpenAI-compatible providers (OpenAI, OpenRouter, Google's OpenAI endpoint)
+// share the same request/response shape — only endpoint, auth, and default
+// model differ. Anthropic has its own shape (see below).
+const openAiCompatible = (over) => ({
+  headers: (key) => ({
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${key}`,
+    ...(over.extraHeaders || {}),
+  }),
+  body: (model, messages) => ({ model, messages, temperature: 0.7 }),
+  parse: (json) => json.choices?.[0]?.message?.content?.trim() || "",
+  errorMessage: (json) => json.error?.message,
+  ...over,
+});
+
 const AI_PROVIDERS = {
-  openai: {
+  openai: openAiCompatible({
     label: "OpenAI",
     endpoint: "https://api.openai.com/v1/chat/completions",
     defaultModel: "gpt-4o-mini",
+  }),
+  anthropic: {
+    label: "Anthropic (Claude)",
+    endpoint: "https://api.anthropic.com/v1/messages",
+    defaultModel: "claude-opus-4-8",
     headers: (key) => ({
       "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
     }),
-    body: (model, messages) => ({ model, messages, temperature: 0.7 }),
-    parse: (json) => json.choices?.[0]?.message?.content?.trim() || "",
+    // Anthropic takes `system` as a separate top-level field, requires
+    // max_tokens, and rejects `temperature` on current models.
+    body: (model, messages) => {
+      const system = messages
+        .filter((m) => m.role === "system")
+        .map((m) => m.content)
+        .join("\n\n");
+      const rest = messages
+        .filter((m) => m.role !== "system")
+        .map((m) => ({ role: m.role, content: m.content }));
+      const b = { model, max_tokens: 2048, messages: rest };
+      if (system) b.system = system;
+      return b;
+    },
+    parse: (json) =>
+      (json.content || [])
+        .filter((b) => b.type === "text")
+        .map((b) => b.text)
+        .join("")
+        .trim(),
     errorMessage: (json) => json.error?.message,
   },
+  google: openAiCompatible({
+    label: "Google (Gemini)",
+    endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    defaultModel: "gemini-2.5-flash",
+  }),
+  openrouter: openAiCompatible({
+    label: "OpenRouter",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    defaultModel: "openai/gpt-4o-mini",
+    extraHeaders: { "X-Title": "Notion Job Saver" },
+  }),
 };
 
 async function handleGenerateCoverLetter(msg) {
