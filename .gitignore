@@ -1,8 +1,10 @@
 # macOS
 .DS_Store
 
-# Local Claude Code settings
+# Local Claude Code settings & working notes
 .claude/
+CLAUDE.md
+PROGRESS.md
 
 # Node (if you add tooling later)
 node_modules/
